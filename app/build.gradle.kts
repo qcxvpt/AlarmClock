@@ -5,13 +5,13 @@ plugins {
 
 android {
     namespace = "com.Rez1n.smartalarm"
-    compileSdk {
-        version = release(36)
+    compileSdk = 36
+    buildFeatures {
+        viewBinding = true
     }
-
     defaultConfig {
         applicationId = "com.Rez1n.smartalarm"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
