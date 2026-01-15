@@ -8,14 +8,20 @@ import android.os.Bundle
 import android.widget.DatePicker
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.Rez1n.smartalarm.R
 import com.Rez1n.smartalarm.TimeLogic
 import com.Rez1n.smartalarm.databinding.ActivityMainBinding
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var selectedDateMillis: Long? = null
+    private val alarms = mutableListOf<AlarmItem>()
 
     private val weekdayChips by lazy {
         mapOf(
@@ -30,12 +36,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val prefs = getSharedPreferences("alarm_prefs", Context.MODE_PRIVATE)
+        applySavedTheme(prefs)
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         // Настройка формата времени
-        val prefs = getSharedPreferences("alarm_prefs", Context.MODE_PRIVATE)
         val is24h = prefs.getBoolean("is24h", true)
         binding.timePicker.setIs24HourView(is24h)
         binding.switch24h.isChecked = is24h
@@ -43,6 +50,10 @@ class MainActivity : AppCompatActivity() {
         binding.switch24h.setOnCheckedChangeListener { _, checked ->
             binding.timePicker.setIs24HourView(checked)
             prefs.edit().putBoolean("is24h", checked).apply()
+        }
+
+        binding.btnSettings.setOnClickListener {
+            showThemeDialog(prefs)
         }
 
         binding.btnSelectDate.setOnClickListener { openDatePicker() }
@@ -56,46 +67,33 @@ class MainActivity : AppCompatActivity() {
                 selectedDateMillis
             )
 
-            setAlarm(triggerTime.timeInMillis)
-            // Сохраняем время для показа после перезапуска
-            val prefs = getSharedPreferences("alarm_prefs", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putLong("alarm_time", triggerTime.timeInMillis)
-                .putString("alarm_weekdays", serializeWeekdays(getSelectedWeekdays()))
-                .putLong("alarm_date", selectedDateMillis ?: -1L)
-                .apply()
-            showAlarmInfo(triggerTime)
+            val weekdays = getSelectedWeekdays()
+            addAlarm(triggerTime.timeInMillis, weekdays, selectedDateMillis)
+            showAlarmInfo()
         }
 
         binding.btnCancelAlarm.setOnClickListener {
-            cancelAlarm()
+            cancelAllAlarms()
         }
 
         binding.btnInlineCancel.setOnClickListener {
-            cancelAlarm()
+            cancelAllAlarms()
         }
 
-        // При старте проверяем установлен ли будильник
-        if (isAlarmSet() && prefs.contains("alarm_time")) {
-            val time = prefs.getLong("alarm_time", 0L)
-            val cal = Calendar.getInstance().apply { timeInMillis = time }
-            val savedDate = prefs.getLong("alarm_date", -1L)
-            selectedDateMillis = if (savedDate > 0) savedDate else null
-            restoreWeekdays(prefs.getString("alarm_weekdays", ""))
-            updateDateButtonText()
-            showAlarmInfo(cal)
-        } else {
+        loadAlarms()
+        renderAlarms()
+        if (alarms.isEmpty()) {
             hideAlarmInfo()
+        } else {
+            showAlarmInfo()
         }
     }
 
-    private fun setAlarm(timeInMillis: Long) {
+    private fun addAlarm(timeInMillis: Long, weekdays: Set<Int>, dateMillis: Long?) {
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        // Проверка возможности ставить exact alarms (Android 12+)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             if (!alarmManager.canScheduleExactAlarms()) {
-                // Показываем диалог с возможностью открыть системные настройки для выдачи разрешения
                 androidx.appcompat.app.AlertDialog.Builder(this)
                     .setTitle("Требуется разрешение")
                     .setMessage("Для установки точного будильника требуется разрешение 'Schedule exact alarms'. Открыть настройки, чтобы предоставить его?")
@@ -105,7 +103,6 @@ class MainActivity : AppCompatActivity() {
                                 .let { Intent(it) }
                             startActivity(intent)
                         } catch (e: Exception) {
-                            // fallback: открываем общие настройки приложения
                             val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                 data = android.net.Uri.parse("package:$packageName")
                             }
@@ -118,59 +115,80 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val alarmId = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
         val intent = Intent(this, AlarmReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+        val pendingIntent = PendingIntent.getBroadcast(this, alarmId, intent, PendingIntent.FLAG_IMMUTABLE)
 
         alarmManager.setExactAndAllowWhileIdle(
             AlarmManager.RTC_WAKEUP,
             timeInMillis,
             pendingIntent
         )
-        Toast.makeText(this, "Будильник установлен!", Toast.LENGTH_SHORT).show()
+
+        val item = AlarmItem(alarmId, timeInMillis, weekdays, dateMillis)
+        alarms.add(item)
+        saveAlarms()
+        renderAlarms()
+        Toast.makeText(this, "Будильник добавлен", Toast.LENGTH_SHORT).show()
     }
 
-    private fun cancelAlarm() {
+    private fun cancelAllAlarms() {
+        if (alarms.isEmpty()) {
+            hideAlarmInfo()
+            Toast.makeText(this, "Будильников нет", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        alarms.toList().forEach { cancelAlarm(it) }
+        alarms.clear()
+        saveAlarms()
+        renderAlarms()
+        hideAlarmInfo()
+        Toast.makeText(this, "Все будильники отменены", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun cancelAlarm(item: AlarmItem) {
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intent = Intent(this, AlarmReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+        val existing = PendingIntent.getBroadcast(
+            this,
+            item.id,
+            intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
 
-        alarmManager.cancel(pendingIntent)
-        pendingIntent.cancel()
-
-        // Удаляем сохранённое время
-        val prefs = getSharedPreferences("alarm_prefs", Context.MODE_PRIVATE)
-        prefs.edit().remove("alarm_time").apply()
-        prefs.edit().remove("alarm_weekdays").apply()
-        prefs.edit().remove("alarm_date").apply()
-        clearDateSelection()
-        clearWeekdays()
-
-        hideAlarmInfo()
-        Toast.makeText(this, "Будильник отменён", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun isAlarmSet(): Boolean {
-        val intent = Intent(this, AlarmReceiver::class.java)
-        val pending = PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
-        return pending != null
-    }
-
-    private fun showAlarmInfo(calendar: Calendar) {
-        val hour = calendar.get(Calendar.HOUR_OF_DAY)
-        val minute = calendar.get(Calendar.MINUTE)
-        val minuteStr = "%02d".format(minute)
-        val dateStr = selectedDateMillis?.let {
-            val cal = Calendar.getInstance().apply { timeInMillis = it }
-            "${cal.get(Calendar.DAY_OF_MONTH)}.${cal.get(Calendar.MONTH)+1}.${cal.get(Calendar.YEAR)}"
+        existing?.let {
+            alarmManager.cancel(it)
+            it.cancel()
         }
-        val weekdaysStr = formatWeekdays(getSelectedWeekdays())
+
+        alarms.removeAll { it.id == item.id }
+        saveAlarms()
+        renderAlarms()
+    }
+
+    private fun showAlarmInfo() {
+        if (alarms.isEmpty()) {
+            hideAlarmInfo()
+            return
+        }
+        val last = alarms.last()
+        val cal = Calendar.getInstance().apply { timeInMillis = last.timeInMillis }
+        val hour = cal.get(Calendar.HOUR_OF_DAY)
+        val minute = cal.get(Calendar.MINUTE)
+        val timeStr = "%02d:%02d".format(hour, minute)
+        val dateStr = last.dateMillis?.let {
+            val c = Calendar.getInstance().apply { timeInMillis = it }
+            "${c.get(Calendar.DAY_OF_MONTH)}.${c.get(Calendar.MONTH)+1}.${c.get(Calendar.YEAR)}"
+        }
+        val weekdaysStr = formatWeekdays(last.weekdays)
         val extra = when {
             dateStr != null -> " (дата: $dateStr)"
             weekdaysStr.isNotEmpty() -> " ($weekdaysStr)"
             else -> ""
         }
-        binding.tvSelectedTime.text = "Будильник на: $hour:$minuteStr$extra"
-        binding.tvAlarmInfo.text = "Будильник на $hour:$minuteStr$extra"
+        binding.tvSelectedTime.text = "Активных будильников: ${alarms.size}. Последний: $timeStr$extra"
+        binding.tvAlarmInfo.text = "Активных будильников: ${alarms.size}"
         binding.alarmInfoContainer.visibility = android.view.View.VISIBLE
     }
 
@@ -222,17 +240,6 @@ class MainActivity : AppCompatActivity() {
         weekdayChips.keys.forEach { it.isChecked = false }
     }
 
-    private fun serializeWeekdays(days: Set<Int>): String = days.joinToString(",")
-
-    private fun restoreWeekdays(serialized: String?) {
-        if (serialized.isNullOrBlank()) {
-            clearWeekdays()
-            return
-        }
-        val set = serialized.split(",").mapNotNull { it.toIntOrNull() }.toSet()
-        weekdayChips.forEach { (chip, day) -> chip.isChecked = day in set }
-    }
-
     private fun formatWeekdays(days: Set<Int>): String {
         if (days.isEmpty()) return ""
         val names = mapOf(
@@ -245,5 +252,107 @@ class MainActivity : AppCompatActivity() {
             Calendar.SUNDAY to "Вс"
         )
         return days.sorted().joinToString(",") { names[it] ?: "" }
+    }
+
+    private fun saveAlarms() {
+        val prefs = getSharedPreferences("alarm_prefs", Context.MODE_PRIVATE)
+        val json = JSONArray()
+        alarms.forEach { alarm ->
+            val obj = JSONObject()
+            obj.put("id", alarm.id)
+            obj.put("time", alarm.timeInMillis)
+            obj.put("date", alarm.dateMillis ?: JSONObject.NULL)
+            obj.put("weekdays", JSONArray(alarm.weekdays.toList()))
+            json.put(obj)
+        }
+        prefs.edit().putString("alarms_json", json.toString()).apply()
+    }
+
+    private fun loadAlarms() {
+        val prefs = getSharedPreferences("alarm_prefs", Context.MODE_PRIVATE)
+        val serialized = prefs.getString("alarms_json", null) ?: return
+        runCatching {
+            val arr = JSONArray(serialized)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val id = obj.getInt("id")
+                val time = obj.getLong("time")
+                val dateMillis = if (obj.isNull("date")) null else obj.getLong("date")
+                val weekdaysJson = obj.optJSONArray("weekdays") ?: JSONArray()
+                val weekdaysSet = mutableSetOf<Int>()
+                for (j in 0 until weekdaysJson.length()) {
+                    weekdaysSet.add(weekdaysJson.getInt(j))
+                }
+                alarms.add(AlarmItem(id, time, weekdaysSet, dateMillis))
+            }
+        }.onFailure { alarms.clear() }
+    }
+
+    private fun renderAlarms() {
+        binding.alarmsContainer.removeAllViews()
+        if (alarms.isEmpty()) return
+
+        val inflater = layoutInflater
+        alarms.sortedBy { it.timeInMillis }.forEach { alarm ->
+            val view = inflater.inflate(R.layout.item_alarm, binding.alarmsContainer, false)
+            val info = view.findViewById<android.widget.TextView>(R.id.tvAlarmInfo)
+            val btnCancel = view.findViewById<android.widget.Button>(R.id.btnCancelAlarmItem)
+
+            val cal = Calendar.getInstance().apply { timeInMillis = alarm.timeInMillis }
+            val hour = cal.get(Calendar.HOUR_OF_DAY)
+            val minute = cal.get(Calendar.MINUTE)
+            val timeStr = "%02d:%02d".format(hour, minute)
+            val dateStr = alarm.dateMillis?.let {
+                val c = Calendar.getInstance().apply { timeInMillis = it }
+                "${c.get(Calendar.DAY_OF_MONTH)}.${c.get(Calendar.MONTH)+1}.${c.get(Calendar.YEAR)}"
+            }
+            val weekdaysStr = formatWeekdays(alarm.weekdays)
+            val extra = when {
+                dateStr != null -> " (дата: $dateStr)"
+                weekdaysStr.isNotEmpty() -> " ($weekdaysStr)"
+                else -> ""
+            }
+            info.text = "$timeStr$extra"
+
+            btnCancel.setOnClickListener {
+                cancelAlarm(alarm)
+                showAlarmInfo()
+            }
+
+            binding.alarmsContainer.addView(view)
+        }
+    }
+
+    data class AlarmItem(
+        val id: Int,
+        val timeInMillis: Long,
+        val weekdays: Set<Int>,
+        val dateMillis: Long?
+    )
+
+    private fun applySavedTheme(prefs: android.content.SharedPreferences) {
+        val mode = prefs.getInt("theme_mode", AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        AppCompatDelegate.setDefaultNightMode(mode)
+    }
+
+    private fun showThemeDialog(prefs: android.content.SharedPreferences) {
+        val modes = listOf(
+            "Как в системе" to AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM,
+            "Светлая" to AppCompatDelegate.MODE_NIGHT_NO,
+            "Тёмная" to AppCompatDelegate.MODE_NIGHT_YES
+        )
+        val current = prefs.getInt("theme_mode", AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        val checked = modes.indexOfFirst { it.second == current }.coerceAtLeast(0)
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Тема")
+            .setSingleChoiceItems(modes.map { it.first }.toTypedArray(), checked) { dialog, which ->
+                val mode = modes[which].second
+                prefs.edit().putInt("theme_mode", mode).apply()
+                AppCompatDelegate.setDefaultNightMode(mode)
+                dialog.dismiss()
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 }
