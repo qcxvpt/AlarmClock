@@ -116,14 +116,20 @@ class MainActivity : AppCompatActivity() {
         }
 
         val alarmId = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
-        val intent = Intent(this, AlarmReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(this, alarmId, intent, PendingIntent.FLAG_IMMUTABLE)
-
-        alarmManager.setExactAndAllowWhileIdle(
-            AlarmManager.RTC_WAKEUP,
-            timeInMillis,
-            pendingIntent
+        val intent = Intent(this, AlarmReceiver::class.java).apply {
+            putExtra("alarm_id", alarmId)
+            putExtra("time", timeInMillis)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            this,
+            alarmId,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+
+        val clockInfo = AlarmManager.AlarmClockInfo(timeInMillis, pendingIntent)
+        // setAlarmClock даёт более надёжный запуск на некоторых прошивках и показывает системный индикатор будильника
+        alarmManager.setAlarmClock(clockInfo, pendingIntent)
 
         val item = AlarmItem(alarmId, timeInMillis, weekdays, dateMillis)
         alarms.add(item)
