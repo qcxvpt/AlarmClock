@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.Rez1n.smartalarm.TimeLogic
 import com.Rez1n.smartalarm.databinding.ActivityMainBinding
 import java.util.*
 
@@ -20,23 +21,17 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         binding.btnSetAlarm.setOnClickListener {
-            val calendar = Calendar.getInstance()
-            calendar.set(Calendar.HOUR_OF_DAY, binding.timePicker.hour)
-            calendar.set(Calendar.MINUTE, binding.timePicker.minute)
-            calendar.set(Calendar.SECOND, 0)
-            calendar.set(Calendar.MILLISECOND, 0)
+            val triggerTime = TimeLogic.calculateTriggerTime(
+                binding.timePicker.hour,
+                binding.timePicker.minute
+            )
 
-            // Если время уже прошло, ставим на завтра
-            if (calendar.before(Calendar.getInstance())) {
-                calendar.add(Calendar.DATE, 1)
-            }
-
-            setAlarm(calendar.timeInMillis)
+            setAlarm(triggerTime.timeInMillis)
             // Сохраняем время для показа после перезапуска
             val prefs = getSharedPreferences("alarm_prefs", Context.MODE_PRIVATE)
-            prefs.edit().putLong("alarm_time", calendar.timeInMillis).apply()
-            val hour = binding.timePicker.hour
-            val minute = binding.timePicker.minute
+            prefs.edit().putLong("alarm_time", triggerTime.timeInMillis).apply()
+            val hour = triggerTime.get(Calendar.HOUR_OF_DAY)
+            val minute = triggerTime.get(Calendar.MINUTE)
             val minuteStr = "%02d".format(minute)
             binding.tvSelectedTime.text = "Будильник на: $hour:$minuteStr"
         }

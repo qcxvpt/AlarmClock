@@ -1,4 +1,4 @@
-package com.example.alarmclock
+package com.Rez1n.smartalarm
 
 import java.util.Calendar
 
