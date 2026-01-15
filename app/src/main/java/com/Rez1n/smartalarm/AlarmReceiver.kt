@@ -29,7 +29,14 @@ class AlarmReceiver : BroadcastReceiver() {
 
         startVibration(ctx)
         AlarmPlayer.start(ctx)
-        showNotification(ctx)
+        // Сразу открываем экран остановки
+        val fullScreenIntent = Intent(ctx, StopAlarmActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        ctx.startActivity(fullScreenIntent)
+
+        // Запускаем периодические пуши каждые 5 секунд, включая первый
+        AlarmNotifier.start(ctx)
     }
 
     private fun startVibration(context: Context) {
@@ -42,53 +49,4 @@ class AlarmReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun showNotification(context: Context) {
-        ensureChannel(context)
-
-        val fullScreenIntent = Intent(context, StopAlarmActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val fullScreenPendingIntent = PendingIntent.getActivity(
-            context,
-            1,
-            fullScreenIntent,
-            PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Будильник")
-            .setContentText("Нажмите, чтобы остановить")
-            .setCategory(Notification.CATEGORY_ALARM)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setAutoCancel(false)
-            .setOngoing(true)
-            .setFullScreenIntent(fullScreenPendingIntent, true)
-            .setContentIntent(fullScreenPendingIntent)
-            .setSound(null) // звук воспроизводится AlarmPlayer
-            .build()
-
-        NotificationManagerCompat.from(context).notify(1001, notification)
-    }
-
-    private fun ensureChannel(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val existing = manager.getNotificationChannel(CHANNEL_ID)
-        if (existing != null) return
-
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Будильники",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "Уведомления будильника"
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            setSound(null, null) // звук будет запускаться отдельно через AlarmPlayer
-            enableVibration(true)
-        }
-
-        manager.createNotificationChannel(channel)
-    }
 }

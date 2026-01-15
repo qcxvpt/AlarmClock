@@ -11,6 +11,7 @@ class StopAlarmActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnStopAlarm).setOnClickListener {
             AlarmPlayer.stop()
+            AlarmNotifier.stop(this)
             finish()
         }
     }
