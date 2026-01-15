@@ -34,8 +34,16 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Всегда показываем 24-часовой формат (европейский)
-        binding.timePicker.setIs24HourView(true)
+        // Настройка формата времени
+        val prefs = getSharedPreferences("alarm_prefs", Context.MODE_PRIVATE)
+        val is24h = prefs.getBoolean("is24h", true)
+        binding.timePicker.setIs24HourView(is24h)
+        binding.switch24h.isChecked = is24h
+
+        binding.switch24h.setOnCheckedChangeListener { _, checked ->
+            binding.timePicker.setIs24HourView(checked)
+            prefs.edit().putBoolean("is24h", checked).apply()
+        }
 
         binding.btnSelectDate.setOnClickListener { openDatePicker() }
         binding.btnClearDate.setOnClickListener { clearDateSelection() }
@@ -68,7 +76,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         // При старте проверяем установлен ли будильник
-        val prefs = getSharedPreferences("alarm_prefs", Context.MODE_PRIVATE)
         if (isAlarmSet() && prefs.contains("alarm_time")) {
             val time = prefs.getLong("alarm_time", 0L)
             val cal = Calendar.getInstance().apply { timeInMillis = time }
