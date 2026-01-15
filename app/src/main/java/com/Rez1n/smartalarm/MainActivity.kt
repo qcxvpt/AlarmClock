@@ -20,6 +20,9 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Всегда показываем 24-часовой формат (европейский)
+        binding.timePicker.setIs24HourView(true)
+
         binding.btnSetAlarm.setOnClickListener {
             val triggerTime = TimeLogic.calculateTriggerTime(
                 binding.timePicker.hour,
@@ -30,13 +33,14 @@ class MainActivity : AppCompatActivity() {
             // Сохраняем время для показа после перезапуска
             val prefs = getSharedPreferences("alarm_prefs", Context.MODE_PRIVATE)
             prefs.edit().putLong("alarm_time", triggerTime.timeInMillis).apply()
-            val hour = triggerTime.get(Calendar.HOUR_OF_DAY)
-            val minute = triggerTime.get(Calendar.MINUTE)
-            val minuteStr = "%02d".format(minute)
-            binding.tvSelectedTime.text = "Будильник на: $hour:$minuteStr"
+            showAlarmInfo(triggerTime)
         }
 
         binding.btnCancelAlarm.setOnClickListener {
+            cancelAlarm()
+        }
+
+        binding.btnInlineCancel.setOnClickListener {
             cancelAlarm()
         }
 
@@ -45,12 +49,9 @@ class MainActivity : AppCompatActivity() {
         if (isAlarmSet() && prefs.contains("alarm_time")) {
             val time = prefs.getLong("alarm_time", 0L)
             val cal = Calendar.getInstance().apply { timeInMillis = time }
-            val hour = cal.get(Calendar.HOUR_OF_DAY)
-            val minute = cal.get(Calendar.MINUTE)
-            val minuteStr = "%02d".format(minute)
-            binding.tvSelectedTime.text = "Будильник на: $hour:$minuteStr"
+            showAlarmInfo(cal)
         } else {
-            binding.tvSelectedTime.text = "Будильник не установлен"
+            hideAlarmInfo()
         }
     }
 
@@ -106,7 +107,7 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("alarm_prefs", Context.MODE_PRIVATE)
         prefs.edit().remove("alarm_time").apply()
 
-        binding.tvSelectedTime.text = "Будильник не установлен"
+        hideAlarmInfo()
         Toast.makeText(this, "Будильник отменён", Toast.LENGTH_SHORT).show()
     }
 
@@ -114,5 +115,19 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, AlarmReceiver::class.java)
         val pending = PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
         return pending != null
+    }
+
+    private fun showAlarmInfo(calendar: Calendar) {
+        val hour = calendar.get(Calendar.HOUR_OF_DAY)
+        val minute = calendar.get(Calendar.MINUTE)
+        val minuteStr = "%02d".format(minute)
+        binding.tvSelectedTime.text = "Будильник на: $hour:$minuteStr"
+        binding.tvAlarmInfo.text = "Будильник на $hour:$minuteStr"
+        binding.alarmInfoContainer.visibility = android.view.View.VISIBLE
+    }
+
+    private fun hideAlarmInfo() {
+        binding.tvSelectedTime.text = "Будильник не установлен"
+        binding.alarmInfoContainer.visibility = android.view.View.GONE
     }
 }

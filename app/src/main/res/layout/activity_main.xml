@@ -49,4 +49,39 @@
         app:layout_constraintEnd_toEndOf="parent"
         android:layout_marginTop="16dp" />
 
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/alarmInfoContainer"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:padding="16dp"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        android:layout_margin="16dp"
+        android:background="@android:color/transparent">
+
+        <TextView
+            android:id="@+id/tvAlarmInfo"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="Будильник"
+            android:textAppearance="@style/TextAppearance.AppCompat.Medium"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@id/btnInlineCancel"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnInlineCancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Отменить"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
 </androidx.constraintlayout.widget.ConstraintLayout>
